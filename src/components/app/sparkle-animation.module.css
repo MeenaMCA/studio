@@ -1,0 +1,27 @@
+@keyframes sparkle-anim {
+  0% {
+    transform: scale(0) rotate(0deg);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.5) rotate(180deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+.sparkle {
+  position: absolute;
+  opacity: 0;
+  animation: sparkle-anim 0.8s ease-out forwards;
+}
+
+.sparkle-1 { top: 10%; left: 15%; animation-delay: 0.1s; transform: scale(0.8); }
+.sparkle-2 { top: 20%; left: 80%; animation-delay: 0s; transform: scale(1.2); }
+.sparkle-3 { top: 50%; left: 50%; animation-delay: 0.3s; }
+.sparkle-4 { top: 80%; left: 25%; animation-delay: 0.2s; transform: scale(0.9); }
+.sparkle-5 { top: 70%; left: 90%; animation-delay: 0.1s; }
+.sparkle-6 { top: 30%; left: 5%; animation-delay: 0.4s; transform: scale(1.1); }
