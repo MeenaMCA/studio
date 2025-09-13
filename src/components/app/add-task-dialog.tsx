@@ -49,7 +49,7 @@ const formSchema = z.object({
 });
 
 type AddTaskDialogProps = {
-  onAddTask: (task: Omit<Task, 'id' | 'completed'>) => void;
+  onAddTask: (task: Omit<Task, 'id' | 'completed' | 'createdAt'>) => void;
 };
 
 export function AddTaskDialog({ onAddTask }: AddTaskDialogProps) {

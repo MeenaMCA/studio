@@ -6,5 +6,6 @@ export interface Task {
   dueDate: Date | undefined;
   category: TaskCategory;
   completed: boolean;
-  priority?: number;
+  priority?: number | null;
+  createdAt: Date;
 }

@@ -71,7 +71,7 @@ export function TaskItem({ task, onToggle }: TaskItemProps) {
               <span>{format(task.dueDate, "MMM d")}</span>
             </div>
           )}
-          {task.priority && !task.completed && (
+          {task.priority != null && !task.completed && (
              <div className="flex items-center gap-1.5 font-bold text-amber-500">
                 <Star className="h-4 w-4 fill-amber-400 text-amber-500" />
                 <span>Priority #{task.priority}</span>

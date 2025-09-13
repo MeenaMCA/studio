@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { Task } from "@/lib/types";
 import { AddTaskDialog } from "@/components/app/add-task-dialog";
 import { TaskList } from "@/components/app/task-list";
@@ -8,34 +8,79 @@ import { AppHeader } from "@/components/app/header";
 import { DailyAffirmation } from "@/components/app/daily-affirmation";
 import { prioritizeTasks } from "@/ai/flows/smart-task-prioritization";
 import { useToast } from "@/hooks/use-toast";
-
-const initialTasks: Task[] = [
-  { id: "1", name: "Design the new app icon", dueDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000), category: "work", completed: false },
-  { id: "2", name: "Book a yoga class", dueDate: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000), category: "personal", completed: false },
-  { id: "3", name: "Read Chapter 5 of Psychology book", dueDate: new Date(Date.now() + 4 * 24 * 60 * 60 * 1000), category: "study", completed: true },
-  { id: "4", name: "Weekly team meeting", dueDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000), category: "work", completed: false },
-];
+import { db } from "@/lib/firebase";
+import {
+  collection,
+  onSnapshot,
+  addDoc,
+  updateDoc,
+  doc,
+  writeBatch,
+  query,
+  orderBy,
+  Timestamp,
+} from "firebase/firestore";
 
 export default function Home() {
-  const [tasks, setTasks] = useState<Task[]>(initialTasks);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isLoadingPriority, setIsLoadingPriority] = useState(false);
   const { toast } = useToast();
 
-  const handleAddTask = (newTaskData: Omit<Task, 'id' | 'completed'>) => {
-    const newTask: Task = {
-      ...newTaskData,
-      id: crypto.randomUUID(),
-      completed: false,
-    };
-    setTasks((prev) => [...prev, newTask].sort((a, b) => (a.priority ?? Infinity) - (b.priority ?? Infinity)));
+  useEffect(() => {
+    const q = query(collection(db, "tasks"), orderBy("createdAt", "desc"));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const tasksData = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          dueDate: data.dueDate ? (data.dueDate as Timestamp).toDate() : undefined,
+          createdAt: data.createdAt ? (data.createdAt as Timestamp).toDate() : new Date(),
+        } as Task;
+      });
+      tasksData.sort((a, b) => {
+            if(a.completed !== b.completed) return a.completed ? 1 : -1;
+            const priorityA = a.priority ?? Infinity;
+            const priorityB = b.priority ?? Infinity;
+            if(priorityA !== priorityB) return priorityA - priorityB;
+            if(a.dueDate && b.dueDate) return a.dueDate.getTime() - b.dueDate.getTime();
+            return 0;
+        });
+      setTasks(tasksData);
+      setIsLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+
+  const handleAddTask = async (newTaskData: Omit<Task, 'id' | 'completed' | 'createdAt'>) => {
+    try {
+      await addDoc(collection(db, "tasks"), {
+        ...newTaskData,
+        completed: false,
+        createdAt: new Date(),
+      });
+    } catch (error) {
+      console.error("Error adding task: ", error);
+      toast({
+        variant: "destructive",
+        title: "Oh no! Something went wrong.",
+        description: "Could not add task. Please try again later.",
+      });
+    }
   };
 
-  const handleToggleTask = (id: string) => {
-    setTasks((prev) =>
-      prev.map((task) =>
-        task.id === id ? { ...task, completed: !task.completed } : task
-      )
-    );
+  const handleToggleTask = async (id: string) => {
+    const task = tasks.find((t) => t.id === id);
+    if (!task) return;
+    try {
+      const taskRef = doc(db, "tasks", id);
+      await updateDoc(taskRef, { completed: !task.completed });
+    } catch (error) {
+      console.error("Error toggling task: ", error);
+    }
   };
   
   const handlePrioritize = async () => {
@@ -52,32 +97,26 @@ export default function Home() {
         const aiInput = {
             tasks: incompleteTasks.map(t => ({
                 name: t.name,
-                dueDate: t.dueDate?.toISOString() || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(), // Provide a far-future date if undefined
+                dueDate: t.dueDate?.toISOString() || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
                 category: t.category,
             }))
         };
         const prioritizedResult = await prioritizeTasks(aiInput);
 
-        const tasksWithPriorities = new Map(prioritizedResult.map(p => [p.name, p]));
-        
-        const updatedTasks = tasks.map(task => {
-            const priorityInfo = tasksWithPriorities.get(task.name);
-            if (priorityInfo) {
-                return { ...task, priority: priorityInfo.priority };
+        const batch = writeBatch(db);
+        const priorities = new Map(prioritizedResult.map(p => [p.name, p.priority]));
+
+        tasks.forEach(task => {
+            const taskRef = doc(db, "tasks", task.id);
+            if (!task.completed && priorities.has(task.name)) {
+                batch.update(taskRef, { priority: priorities.get(task.name) });
+            } else {
+                 batch.update(taskRef, { priority: null });
             }
-            return { ...task, priority: task.completed ? undefined : task.priority }; // Keep priority for incomplete, clear for completed
         });
+        
+        await batch.commit();
 
-        updatedTasks.sort((a, b) => {
-            if(a.completed !== b.completed) return a.completed ? 1 : -1;
-            const priorityA = a.priority ?? Infinity;
-            const priorityB = b.priority ?? Infinity;
-            if(priorityA !== priorityB) return priorityA - priorityB;
-            if(a.dueDate && b.dueDate) return a.dueDate.getTime() - b.dueDate.getTime();
-            return 0;
-        });
-
-        setTasks(updatedTasks);
         toast({
             title: "Tasks Prioritized! ✨",
             description: "Your tasks have been magically sorted for you.",
@@ -105,6 +144,7 @@ export default function Home() {
             onToggle={handleToggleTask} 
             onPrioritize={handlePrioritize}
             isLoadingPriority={isLoadingPriority}
+            isLoading={isLoading}
           />
         </div>
       </main>
